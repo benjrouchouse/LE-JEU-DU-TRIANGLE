@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Triangle Match - Le Jeu Addictif</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a2e;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+        }
+        canvas {
+            border: 4px solid #16213e;
+            border-radius: 10px;
+            background-color: #0f3460;
+            cursor: pointer;
+        }
+        #ui {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        #score {
+            font-size: 3em;
+            font-weight: bold;
+            color: #e94560;
+        }
+        #level {
+            font-size: 1.2em;
+            color: #00fff2;
+        }
+        #reset-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            background-color: #e94560;
+            border: none;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui">
+            <div id="level">Niveau: 1</div>
+            <div id="score">0</div>
+        </div>
+        <button id="reset-btn" onclick="initGame()">Réinitialiser</button>
+        <canvas id="gameCanvas" width="400" height="500"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const levelElement = document.getElementById('level');
+
+        // --- Configuration du Jeu ---
+        const ROWS = 8;
+        const COLS = 7;
+        const TILE_SIZE = canvas.width / COLS;
+        const COLORS = [
+            '#FF5733', // Rouge-Orange
+            '#33FF57', // Vert
+            '#3357FF', // Bleu
+            '#F1C40F', // Jaune
+            '#9B59B6'  // Violet
+        ];
+
+        let grid = [];
+        let score = 0;
+        let level = 1;
+        let isAnimating = false;
+        let selectedTile = null; // Stocke la tuile sélectionnée pour l'échange
+
+        // --- Initialisation du Jeu ---
+        function initGame() {
+            score = 0;
+            level = 1;
+            updateUI();
+            
+            // Créer une grille sans alignements de départ
+            do {
+                createGrid();
+            } while (findMatches().length > 0);
+            
+            draw();
+        }
+
+        // --- Création de la Grille ---
+        function createGrid() {
+            grid = [];
+            for (let r = 0; r < ROWS; r++) {
+                grid[r] = [];
+                for (let c = 0; c < COLS; c++) {
+                    grid[r][c] = {
+                        colorIndex: Math.floor(Math.random() * COLORS.length),
+                        r: r,
+                        c: c,
+                        y: r * TILE_SIZE // Position Y pour l'animation de chute
+                    };
+                }
+            }
+        }
+
+        // --- Dessin ---
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    drawTile(grid[r][c]);
+                }
+            }
+        }
+
+        function drawTile(tile) {
+            const x = tile.c * TILE_SIZE;
+            const y = tile.y; // Utiliser la position Y animée
+
+            // Fond de la cellule (pour délimiter)
+            ctx.fillStyle = '#16213e';
+            ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+
+            // Dessiner le Triangle
+            ctx.fillStyle = COLORS[tile.colorIndex];
+            ctx.beginPath();
+            
+            // Un triangle pointe vers le haut
+            ctx.moveTo(x + TILE_SIZE / 2, y + 10); // Sommet
+            ctx.lineTo(x + 10, y + TILE_SIZE - 10); // Coin bas gauche
+            ctx.lineTo(x + TILE_SIZE - 10, y + TILE_SIZE - 10); // Coin bas droite
+            
+            ctx.closePath();
+            ctx.fill();
+
+            // Mettre en surbrillance si sélectionnée
+            if (selectedTile && selectedTile.r === tile.r && selectedTile.c === tile.c) {
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            }
+        }
+
+        // --- Logique d'Alignement ---
+        function findMatches() {
+            let matches = [];
+
+            // Vérifier les alignements horizontaux
+            for (let r = 0; r < ROWS; r++) {
+                let matchRun = 1;
+                for (let c = 1; c < COLS; c++) {
+                    if (grid[r][c].colorIndex === grid[r][c-1].colorIndex) {
+                        matchRun++;
+                    } else {
+                        if (matchRun >= 3) {
+                            for (let i = 0; i < matchRun; i++) {
+                                matches.push({r: r, c: c - 1 - i});
+                            }
+                        }
+                        matchRun = 1;
+                    }
+                }
+                if (matchRun >= 3) {
+                    for (let i = 0; i < matchRun; i++) {
+                        matches.push({r: r, c: COLS - 1 - i});
+                    }
+                }
+            }
+
+            // Vérifier les alignements verticaux
+            for (let c = 0; c < COLS; c++) {
+                let matchRun = 1;
+                for (let r = 1; r < ROWS; r++) {
+                    if (grid[r][c].colorIndex === grid[r-1][c].colorIndex) {
+                        matchRun++;
+                    } else {
+                        if (matchRun >= 3) {
+                            for (let i = 0; i < matchRun; i++) {
+                                matches.push({r: r - 1 - i, c: c});
+                            }
+                        }
+                        matchRun = 1;
+                    }
+                }
+                if (matchRun >= 3) {
+                    for (let i = 0; i < matchRun; i++) {
+                        matches.push({r: ROWS - 1 - i, c: c});
+                    }
+                }
+            }
+
+            // Supprimer les doublons
+            return Array.from(new Set(matches.map(m => JSON.stringify(m)))).map(m => JSON.parse(m));
+        }
+
+        // --- Gestion des Aligments et Chute ---
+        async function handleMatches() {
+            let matches = findMatches();
+            if (matches.length === 0) {
+                isAnimating = false;
+                return;
+            }
+
+            isAnimating = true;
+
+            // 1. Marquer et Marquer les points
+            score += matches.length * 10 * level; // Plus d'alignements = plus de points
+            level = Math.floor(score / 500) + 1; // Monter de niveau
+            updateUI();
+
+            // 2. Faire "disparaître" (enlever de la grille)
+            for (let m of matches) {
+                grid[m.r][m.c] = null;
+            }
+            draw(); // Redessiner avec les trous
+
+            // Petit délai pour la disparition
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // 3. Faire chuter les tuiles du dessus
+            for (let c = 0; c < COLS; c++) {
+                let emptyRow = ROWS - 1;
+                for (let r = ROWS - 1; r >= 0; r--) {
+                    if (grid[r][c] !== null) {
+                        if (r !== emptyRow) {
+                            grid[emptyRow][c] = grid[r][c];
+                            grid[emptyRow][c].r = emptyRow;
+                            // Animer la chute (définir le point de départ)
+                            // grid[emptyRow][c].y = r * TILE_SIZE; 
+                            grid[r][c] = null;
+                        }
+                        emptyRow--;
+                    }
+                }
+                // Remplir les nouveaux trous du haut
+                for (let r = emptyRow; r >= 0; r--) {
+                    grid[r][c] = {
+                        colorIndex: Math.floor(Math.random() * COLORS.length),
+                        r: r,
+                        c: c,
+                        y: -TILE_SIZE * (emptyRow - r + 1) // Partir du dessus du canvas
+                    };
+                }
+            }
+
+            // Animer la chute
+            await animateFall();
+
+            // 4. Vérifier récursivement les nouveaux alignements créés par la chute
+            handleMatches();
+        }
+
+        function animateFall() {
+            return new Promise(resolve => {
+                function step() {
+                    let allDown = true;
+                    for (let r = 0; r < ROWS; r++) {
+                        for (let c = 0; c < COLS; c++) {
+                            const tile = grid[r][c];
+                            const targetY = tile.r * TILE_SIZE;
+                            if (tile.y < targetY) {
+                                tile.y += TILE_SIZE / 5; // Vitesse de chute
+                                if (tile.y > targetY) tile.y = targetY;
+                                allDown = false;
+                            }
+                        }
+                    }
+                    draw();
+                    if (allDown) {
+                        resolve();
+                    } else {
+                        requestAnimationFrame(step);
+                    }
+                }
+                step();
+            });
+        }
+
+        // --- Interaction Utilisateur ---
+        canvas.addEventListener('click', (e) => {
+            if (isAnimating) return; // Bloquer pendant les animations
+
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            const c = Math.floor(mouseX / TILE_SIZE);
+            const r = Math.floor(mouseY / TILE_SIZE);
+
+            if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+                if (!selectedTile) {
+                    // Première sélection
+                    selectedTile = grid[r][c];
+                    draw();
+                } else {
+                    // Deuxième sélection
+                    if (isAdjacent(selectedTile, grid[r][c])) {
+                        swapTiles(selectedTile, grid[r][c]);
+                        selectedTile = null;
+                        draw();
+                        handleMatches(); // Vérifier les alignements après échange
+                    } else {
+                        // Pas adjacent, changer la sélection
+                        selectedTile = grid[r][c];
+                        draw();
+                    }
+                }
+            }
+        });
+
+        function isAdjacent(tile1, tile2) {
+            return (Math.abs(tile1.r - tile2.r) === 1 && tile1.c === tile2.c) ||
+                   (Math.abs(tile1.c - tile2.c) === 1 && tile1.r === tile2.r);
+        }
+
+        function swapTiles(tile1, tile2) {
+            const tempColor = tile1.colorIndex;
+            tile1.colorIndex = tile2.colorIndex;
+            tile2.colorIndex = tempColor;
+        }
+
+        // --- Mise à jour de l'UI ---
+        function updateUI() {
+            scoreElement.textContent = score;
+            levelElement.textContent = `Niveau: ${level}`;
+        }
+
+        // Lancement du jeu
+        initGame();
+
+    </script>
+</body>
+</html>
