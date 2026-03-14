@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Saucisson Shooter Mobile</title>
+    <title>Saucisson Shooter Pro</title>
     <style>
         body {
             margin: 0;
@@ -16,23 +16,24 @@
             justify-content: center;
             height: 100vh;
             overflow: hidden;
-            touch-action: none; /* Empêche le zoom et le défilement pendant le jeu */
+            touch-action: none;
         }
+        #ui { margin-bottom: 10px; text-align: center; }
+        .score-val { color: #e94560; font-size: 2rem; }
+        .level-val { color: #00fff2; font-size: 1.2rem; margin-left: 10px; }
         canvas {
             border: 4px solid #e94560;
             background-color: #16213e;
             max-width: 95vw;
             max-height: 70vh;
         }
-        #ui { margin-bottom: 10px; text-align: center; }
-        .score-val { color: #e94560; font-size: 2rem; }
         .hint { font-size: 0.8rem; color: #888; margin-top: 5px; }
     </style>
 </head>
 <body>
 
     <div id="ui">
-        <div>SCORE: <span id="score" class="score-val">0</span></div>
+        <div>SCORE: <span id="score" class="score-val">0</span> <span id="level" class="level-val">Niveau: 1</span></div>
     </div>
     <canvas id="gameCanvas" width="400" height="600"></canvas>
     <p class="hint">Glisse pour bouger | Tapote pour tirer</p>
@@ -41,9 +42,15 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreDisplay = document.getElementById('score');
+        const levelDisplay = document.getElementById('level');
 
         let score = 0;
+        let level = 1;
         let gameActive = true;
+
+        // Paramètres de difficulté progressive
+        let baseEnemySpeed = 2;
+        let spawnRate = 60; // Plus c'est haut, plus c'est lent au début
 
         const player = {
             x: canvas.width / 2 - 40,
@@ -62,11 +69,7 @@
             const rect = canvas.getBoundingClientRect();
             const touch = e.touches[0];
             const scaleX = canvas.width / rect.width;
-            
-            // On centre le joueur sous le doigt
             player.x = (touch.clientX - rect.left) * scaleX - (player.w / 2);
-
-            // Empêcher de sortir de l'écran
             if (player.x < 0) player.x = 0;
             if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
         }, { passive: false });
@@ -76,12 +79,10 @@
                 resetGame();
                 return;
             }
-            // Tirer lors d'un tap
             projectiles.push({ x: player.x + (player.w/2) - 15, y: player.y, speed: 10 });
-            playSfx(440, 'square', 0.1);
+            playSfx(440, 'square', 0.05);
         }, { passive: false });
 
-        // Moteur Audio simple
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         function playSfx(f, t, d) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -95,11 +96,27 @@
 
         function resetGame() {
             score = 0;
+            level = 1;
+            baseEnemySpeed = 2;
+            spawnRate = 60;
             scoreDisplay.textContent = score;
+            levelDisplay.textContent = "Niveau: 1";
             enemies = [];
             projectiles = [];
             gameActive = true;
             requestAnimationFrame(loop);
+        }
+
+        function updateDifficulty() {
+            // Tous les 30 points, on augmente la difficulté
+            let newLevel = Math.floor(score / 30) + 1;
+            if (newLevel > level) {
+                level = newLevel;
+                levelDisplay.textContent = "Niveau: " + level;
+                baseEnemySpeed += 0.5; // Les ennemis descendent plus vite
+                spawnRate = Math.max(15, spawnRate - 8); // Ils apparaissent plus souvent
+                playSfx(880, 'sine', 0.3); // Petit son de passage de niveau
+            }
         }
 
         function loop() {
@@ -118,17 +135,16 @@
                 ctx.fillStyle = '#ffbd69';
                 ctx.font = 'bold 16px Arial';
                 ctx.fillText('(( ))', p.x, p.y); 
-
                 if (p.y < 0) projectiles.splice(index, 1);
             });
 
-            // Gestion Ennemis (HARABE)
+            // Gestion Ennemis (ARABES)
             enemyTimer++;
-            if (enemyTimer > 35) { // Un peu plus rapide
+            if (enemyTimer > spawnRate) {
                 enemies.push({ 
                     x: Math.random() * (canvas.width - 80), 
                     y: -20, 
-                    speed: 3 + Math.random() * 2 
+                    speed: baseEnemySpeed + Math.random() 
                 });
                 enemyTimer = 0;
             }
@@ -137,7 +153,7 @@
                 en.y += en.speed;
                 ctx.fillStyle = '#00f2ff';
                 ctx.font = 'bold 18px Arial';
-                ctx.fillText('HARABE', en.x, en.y);
+                ctx.fillText('ARABES', en.x, en.y);
 
                 // Collision avec projectiles
                 projectiles.forEach((p, pIdx) => {
@@ -146,17 +162,18 @@
                         projectiles.splice(pIdx, 1);
                         score += 10;
                         scoreDisplay.textContent = score;
+                        updateDifficulty();
                         playSfx(150, 'sawtooth', 0.1);
                     }
                 });
 
-                // Collision avec le bas (Game Over)
+                // Collision avec le bas
                 if (en.y > canvas.height) {
                     gameActive = false;
                     ctx.fillStyle = 'white';
                     ctx.textAlign = 'center';
                     ctx.font = '40px Arial';
-                    ctx.fillText('PERDU !', canvas.width/2, canvas.height/2);
+                    ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2);
                     ctx.font = '20px Arial';
                     ctx.fillText('Tape pour rejouer', canvas.width/2, canvas.height/2 + 50);
                     ctx.textAlign = 'start';
