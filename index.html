@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Triangle Match - Le Jeu Addictif</title>
+    <title>Triangle Pop - Addictif & Sonore</title>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #1a1a2e;
+            font-family: 'Arial Black', sans-serif;
+            background: radial-gradient(circle, #1a1a2e, #16213e);
             color: #fff;
             display: flex;
             flex-direction: column;
@@ -17,331 +17,204 @@
             margin: 0;
             overflow: hidden;
         }
-        #game-container {
-            position: relative;
-        }
+        #ui { text-align: center; margin-bottom: 15px; }
+        #score-label { font-size: 1.2rem; color: #00fff2; text-transform: uppercase; }
+        #score { font-size: 3.5rem; text-shadow: 0 0 20px #e94560; color: #e94560; }
         canvas {
-            border: 4px solid #16213e;
-            border-radius: 10px;
+            border: 5px solid #0f3460;
+            border-radius: 15px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
             background-color: #0f3460;
             cursor: pointer;
         }
-        #ui {
-            text-align: center;
-            margin-bottom: 10px;
-        }
-        #score {
-            font-size: 3em;
-            font-weight: bold;
-            color: #e94560;
-        }
-        #level {
-            font-size: 1.2em;
-            color: #00fff2;
-        }
-        #reset-btn {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            padding: 5px 10px;
-            background-color: #e94560;
-            border: none;
-            color: white;
-            border-radius: 5px;
-            cursor: pointer;
-        }
+        .instructions { margin-top: 15px; font-size: 0.9rem; color: #888; }
     </style>
 </head>
 <body>
 
-    <div id="game-container">
-        <div id="ui">
-            <div id="level">Niveau: 1</div>
-            <div id="score">0</div>
-        </div>
-        <button id="reset-btn" onclick="initGame()">Réinitialiser</button>
-        <canvas id="gameCanvas" width="400" height="500"></canvas>
+    <div id="ui">
+        <div id="score-label">Points</div>
+        <div id="score">0</div>
     </div>
+    
+    <canvas id="gameCanvas" width="360" height="480"></canvas>
+    <p class="instructions">Alignez 3 triangles identiques !</p>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreElement = document.getElementById('score');
-        const levelElement = document.getElementById('level');
 
-        // --- Configuration du Jeu ---
+        // --- Paramètres ---
         const ROWS = 8;
-        const COLS = 7;
+        const COLS = 6;
         const TILE_SIZE = canvas.width / COLS;
-        const COLORS = [
-            '#FF5733', // Rouge-Orange
-            '#33FF57', // Vert
-            '#3357FF', // Bleu
-            '#F1C40F', // Jaune
-            '#9B59B6'  // Violet
-        ];
-
+        const COLORS = ['#FF0000', '#00FF00', '#0088FF', '#FFFF00', '#FF00FF'];
+        
         let grid = [];
         let score = 0;
-        let level = 1;
         let isAnimating = false;
-        let selectedTile = null; // Stocke la tuile sélectionnée pour l'échange
+        let selected = null;
 
-        // --- Initialisation du Jeu ---
-        function initGame() {
-            score = 0;
-            level = 1;
-            updateUI();
-            
-            // Créer une grille sans alignements de départ
-            do {
-                createGrid();
-            } while (findMatches().length > 0);
-            
-            draw();
+        // --- Moteur Audio (Web Audio API) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(freq, type, duration) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
         }
 
-        // --- Création de la Grille ---
-        function createGrid() {
-            grid = [];
+        function playMatchSound() {
+            playSound(440, 'triangle', 0.3);
+            setTimeout(() => playSound(660, 'triangle', 0.3), 100);
+            setTimeout(() => playSound(880, 'triangle', 0.4), 200);
+        }
+
+        function playSelectSound() {
+            playSound(220, 'sine', 0.1);
+        }
+
+        // --- Logique du Jeu ---
+        function init() {
             for (let r = 0; r < ROWS; r++) {
                 grid[r] = [];
                 for (let c = 0; c < COLS; c++) {
-                    grid[r][c] = {
-                        colorIndex: Math.floor(Math.random() * COLORS.length),
-                        r: r,
-                        c: c,
-                        y: r * TILE_SIZE // Position Y pour l'animation de chute
-                    };
+                    grid[r][c] = { color: Math.floor(Math.random()*COLORS.length), r, c, y: r*TILE_SIZE };
                 }
             }
+            if(findMatches().length > 0) init(); // Éviter les combos au démarrage
+            draw();
         }
 
-        // --- Dessin ---
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < COLS; c++) {
-                    drawTile(grid[r][c]);
+            grid.forEach(row => row.forEach(tile => {
+                if (!tile) return;
+                const x = tile.c * TILE_SIZE;
+                const y = tile.y;
+                
+                // Dessin du triangle
+                ctx.fillStyle = COLORS[tile.color];
+                ctx.beginPath();
+                ctx.moveTo(x + TILE_SIZE/2, y + 10);
+                ctx.lineTo(x + 10, y + TILE_SIZE - 10);
+                ctx.lineTo(x + TILE_SIZE - 10, y + TILE_SIZE - 10);
+                ctx.closePath();
+                ctx.fill();
+
+                if (selected && selected.r === tile.r && selected.c === tile.c) {
+                    ctx.strokeStyle = "white";
+                    ctx.lineWidth = 4;
+                    ctx.stroke();
                 }
-            }
+            }));
         }
 
-        function drawTile(tile) {
-            const x = tile.c * TILE_SIZE;
-            const y = tile.y; // Utiliser la position Y animée
-
-            // Fond de la cellule (pour délimiter)
-            ctx.fillStyle = '#16213e';
-            ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-
-            // Dessiner le Triangle
-            ctx.fillStyle = COLORS[tile.colorIndex];
-            ctx.beginPath();
-            
-            // Un triangle pointe vers le haut
-            ctx.moveTo(x + TILE_SIZE / 2, y + 10); // Sommet
-            ctx.lineTo(x + 10, y + TILE_SIZE - 10); // Coin bas gauche
-            ctx.lineTo(x + TILE_SIZE - 10, y + TILE_SIZE - 10); // Coin bas droite
-            
-            ctx.closePath();
-            ctx.fill();
-
-            // Mettre en surbrillance si sélectionnée
-            if (selectedTile && selectedTile.r === tile.r && selectedTile.c === tile.c) {
-                ctx.strokeStyle = 'white';
-                ctx.lineWidth = 3;
-                ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-            }
-        }
-
-        // --- Logique d'Alignement ---
         function findMatches() {
             let matches = [];
-
-            // Vérifier les alignements horizontaux
+            // Horizontaux
             for (let r = 0; r < ROWS; r++) {
-                let matchRun = 1;
-                for (let c = 1; c < COLS; c++) {
-                    if (grid[r][c].colorIndex === grid[r][c-1].colorIndex) {
-                        matchRun++;
-                    } else {
-                        if (matchRun >= 3) {
-                            for (let i = 0; i < matchRun; i++) {
-                                matches.push({r: r, c: c - 1 - i});
-                            }
-                        }
-                        matchRun = 1;
-                    }
-                }
-                if (matchRun >= 3) {
-                    for (let i = 0; i < matchRun; i++) {
-                        matches.push({r: r, c: COLS - 1 - i});
+                for (let c = 0; c < COLS - 2; c++) {
+                    if (grid[r][c] && grid[r][c+1] && grid[r][c+2] &&
+                        grid[r][c].color === grid[r][c+1].color && grid[r][c].color === grid[r][c+2].color) {
+                        matches.push({r,c}, {r,c:c+1}, {r,c:c+2});
                     }
                 }
             }
-
-            // Vérifier les alignements verticaux
+            // Verticaux
             for (let c = 0; c < COLS; c++) {
-                let matchRun = 1;
-                for (let r = 1; r < ROWS; r++) {
-                    if (grid[r][c].colorIndex === grid[r-1][c].colorIndex) {
-                        matchRun++;
-                    } else {
-                        if (matchRun >= 3) {
-                            for (let i = 0; i < matchRun; i++) {
-                                matches.push({r: r - 1 - i, c: c});
-                            }
-                        }
-                        matchRun = 1;
-                    }
-                }
-                if (matchRun >= 3) {
-                    for (let i = 0; i < matchRun; i++) {
-                        matches.push({r: ROWS - 1 - i, c: c});
+                for (let r = 0; r < ROWS - 2; r++) {
+                    if (grid[r][c] && grid[r+1][c] && grid[r+2][c] &&
+                        grid[r][c].color === grid[r+1][c].color && grid[r][c].color === grid[r+2][c].color) {
+                        matches.push({r,c}, {r:r+1,c}, {r:r+2,c});
                     }
                 }
             }
-
-            // Supprimer les doublons
-            return Array.from(new Set(matches.map(m => JSON.stringify(m)))).map(m => JSON.parse(m));
+            return matches;
         }
 
-        // --- Gestion des Aligments et Chute ---
-        async function handleMatches() {
+        async function processTurn() {
             let matches = findMatches();
-            if (matches.length === 0) {
-                isAnimating = false;
-                return;
-            }
+            if (matches.length > 0) {
+                isAnimating = true;
+                playMatchSound();
+                score += matches.length * 10;
+                scoreElement.textContent = score;
 
-            isAnimating = true;
+                matches.forEach(m => grid[m.r][m.c] = null);
+                draw();
+                await new Promise(r => setTimeout(r, 300));
 
-            // 1. Marquer et Marquer les points
-            score += matches.length * 10 * level; // Plus d'alignements = plus de points
-            level = Math.floor(score / 500) + 1; // Monter de niveau
-            updateUI();
-
-            // 2. Faire "disparaître" (enlever de la grille)
-            for (let m of matches) {
-                grid[m.r][m.c] = null;
-            }
-            draw(); // Redessiner avec les trous
-
-            // Petit délai pour la disparition
-            await new Promise(resolve => setTimeout(resolve, 200));
-
-            // 3. Faire chuter les tuiles du dessus
-            for (let c = 0; c < COLS; c++) {
-                let emptyRow = ROWS - 1;
-                for (let r = ROWS - 1; r >= 0; r--) {
-                    if (grid[r][c] !== null) {
-                        if (r !== emptyRow) {
-                            grid[emptyRow][c] = grid[r][c];
-                            grid[emptyRow][c].r = emptyRow;
-                            // Animer la chute (définir le point de départ)
-                            // grid[emptyRow][c].y = r * TILE_SIZE; 
-                            grid[r][c] = null;
+                // Chute
+                for (let c = 0; c < COLS; c++) {
+                    let write = ROWS - 1;
+                    for (let r = ROWS - 1; r >= 0; r--) {
+                        if (grid[r][c]) {
+                            grid[write][c] = grid[r][c];
+                            grid[write][c].r = write;
+                            write--;
                         }
-                        emptyRow--;
+                    }
+                    for (let r = write; r >= 0; r--) {
+                        grid[r][c] = { color: Math.floor(Math.random()*COLORS.length), r, c, y: -TILE_SIZE };
                     }
                 }
-                // Remplir les nouveaux trous du haut
-                for (let r = emptyRow; r >= 0; r--) {
-                    grid[r][c] = {
-                        colorIndex: Math.floor(Math.random() * COLORS.length),
-                        r: r,
-                        c: c,
-                        y: -TILE_SIZE * (emptyRow - r + 1) // Partir du dessus du canvas
-                    };
-                }
+                
+                await animateFall();
+                processTurn(); // Récursif pour les cascades
+            } else {
+                isAnimating = false;
             }
-
-            // Animer la chute
-            await animateFall();
-
-            // 4. Vérifier récursivement les nouveaux alignements créés par la chute
-            handleMatches();
         }
 
         function animateFall() {
             return new Promise(resolve => {
-                function step() {
-                    let allDown = true;
-                    for (let r = 0; r < ROWS; r++) {
-                        for (let c = 0; c < COLS; c++) {
-                            const tile = grid[r][c];
-                            const targetY = tile.r * TILE_SIZE;
-                            if (tile.y < targetY) {
-                                tile.y += TILE_SIZE / 5; // Vitesse de chute
-                                if (tile.y > targetY) tile.y = targetY;
-                                allDown = false;
-                            }
-                        }
-                    }
+                function frame() {
+                    let done = true;
+                    grid.forEach(row => row.forEach(t => {
+                        const target = t.r * TILE_SIZE;
+                        if (t.y < target) { t.y += 10; done = false; if(t.y > target) t.y = target; }
+                    }));
                     draw();
-                    if (allDown) {
-                        resolve();
-                    } else {
-                        requestAnimationFrame(step);
-                    }
+                    if (done) resolve(); else requestAnimationFrame(frame);
                 }
-                step();
+                frame();
             });
         }
 
-        // --- Interaction Utilisateur ---
-        canvas.addEventListener('click', (e) => {
-            if (isAnimating) return; // Bloquer pendant les animations
+        canvas.addEventListener('mousedown', e => {
+            if (isAnimating) return;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
 
             const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+            const c = Math.floor((e.clientX - rect.left) / TILE_SIZE);
+            const r = Math.floor((e.clientY - rect.top) / TILE_SIZE);
 
-            const c = Math.floor(mouseX / TILE_SIZE);
-            const r = Math.floor(mouseY / TILE_SIZE);
-
-            if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-                if (!selectedTile) {
-                    // Première sélection
-                    selectedTile = grid[r][c];
-                    draw();
-                } else {
-                    // Deuxième sélection
-                    if (isAdjacent(selectedTile, grid[r][c])) {
-                        swapTiles(selectedTile, grid[r][c]);
-                        selectedTile = null;
-                        draw();
-                        handleMatches(); // Vérifier les alignements après échange
-                    } else {
-                        // Pas adjacent, changer la sélection
-                        selectedTile = grid[r][c];
-                        draw();
-                    }
+            if (!selected) {
+                selected = grid[r][c];
+                playSelectSound();
+            } else {
+                const dist = Math.abs(r - selected.r) + Math.abs(c - selected.c);
+                if (dist === 1) {
+                    const temp = grid[r][c].color;
+                    grid[r][c].color = selected.color;
+                    selected.color = temp;
+                    processTurn();
                 }
+                selected = null;
             }
+            draw();
         });
 
-        function isAdjacent(tile1, tile2) {
-            return (Math.abs(tile1.r - tile2.r) === 1 && tile1.c === tile2.c) ||
-                   (Math.abs(tile1.c - tile2.c) === 1 && tile1.r === tile2.r);
-        }
-
-        function swapTiles(tile1, tile2) {
-            const tempColor = tile1.colorIndex;
-            tile1.colorIndex = tile2.colorIndex;
-            tile2.colorIndex = tempColor;
-        }
-
-        // --- Mise à jour de l'UI ---
-        function updateUI() {
-            scoreElement.textContent = score;
-            levelElement.textContent = `Niveau: ${level}`;
-        }
-
-        // Lancement du jeu
-        initGame();
-
+        init();
     </script>
 </body>
 </html>
