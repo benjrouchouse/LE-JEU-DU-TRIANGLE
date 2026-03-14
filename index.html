@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Saucisson Auto-Shooter</title>
+    <title>Saucisson Drift - Racing</title>
     <style>
         body {
             margin: 0;
-            background-color: #1a1a2e;
+            background-color: #2c3e50;
             color: white;
             font-family: 'Arial Black', sans-serif;
             display: flex;
@@ -18,103 +18,105 @@
             overflow: hidden;
             touch-action: none;
         }
-        #ui { margin-bottom: 10px; text-align: center; }
-        .score-val { color: #e94560; font-size: 2rem; }
-        .level-val { color: #00fff2; font-size: 1.2rem; margin-left: 10px; }
+        #ui { position: absolute; top: 20px; text-align: center; z-index: 10; pointer-events: none; }
+        .score-val { color: #f1c40f; font-size: 2.5rem; text-shadow: 2px 2px #000; }
         canvas {
-            border: 4px solid #e94560;
-            background-color: #16213e;
-            max-width: 95vw;
-            max-height: 70vh;
+            background-color: #34495e;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            max-width: 100vw;
+            max-height: 80vh;
         }
-        .hint { font-size: 0.8rem; color: #888; margin-top: 5px; }
+        .msg { position: absolute; top: 50%; text-align: center; width: 100%; display: none; }
     </style>
 </head>
 <body>
 
     <div id="ui">
-        <div>SCORE: <span id="score" class="score-val">0</span> <span id="level" class="level-val">Niveau: 1</span></div>
+        <div class="score-val" id="score">0</div>
+        <div id="speed-ui">Vitesse: 1x</div>
     </div>
-    <canvas id="gameCanvas" width="400" height="600"></canvas>
-    <p class="hint">Glisse pour déplacer | Tir automatique activé</p>
+    
+    <canvas id="gameCanvas" width="360" height="600"></canvas>
+    
+    <div id="game-over" class="msg">
+        <h1 style="font-size: 3rem; color: #e74c3c;">CRASH !</h1>
+        <p>Tape pour recommencer</p>
+    </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreDisplay = document.getElementById('score');
-        const levelDisplay = document.getElementById('level');
+        const speedDisplay = document.getElementById('speed-ui');
+        const gameOverMsg = document.getElementById('game-over');
 
         let score = 0;
-        let level = 1;
         let gameActive = true;
+        let gameSpeed = 5;
+        let roadOffset = 0;
 
-        // RÉGLAGES INITIAUX TRÈS LENTS
-        let baseEnemySpeed = 1.0; 
-        let spawnRate = 140; 
-        let shootTimer = 0;
-        let shootSpeed = 25; // Cadence de tir automatique
-
+        // Configuration Joueur (Ta voiture)
         const player = {
-            x: canvas.width / 2 - 40,
-            y: canvas.height - 60,
-            w: 100,
-            h: 30
+            x: 180 - 25,
+            y: 500,
+            w: 50,
+            h: 80,
+            color: '#e74c3c'
         };
 
-        let projectiles = [];
-        let enemies = [];
-        let enemyTimer = 0;
+        let obstacles = [];
+        let obstacleTimer = 0;
 
-        // --- DÉPLACEMENT TACTILE ---
+        // Audio
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSfx(f, t, d, v=0.1) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = t; o.frequency.value = f;
+            g.gain.setValueAtTime(v, audioCtx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + d);
+            o.connect(g); g.connect(audioCtx.destination);
+            o.start(); o.stop(audioCtx.currentTime + d);
+        }
+
+        // Tactile - Glisser pour bouger
         canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
             const touch = e.touches[0];
             const scaleX = canvas.width / rect.width;
             player.x = (touch.clientX - rect.left) * scaleX - (player.w / 2);
-            if (player.x < 0) player.x = 0;
-            if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
+            
+            // Limites de la route
+            if (player.x < 40) player.x = 40;
+            if (player.x > canvas.width - 40 - player.w) player.x = canvas.width - 40 - player.w;
         }, { passive: false });
 
-        // Redémarrage au toucher après Game Over
-        canvas.addEventListener('touchstart', (e) => {
+        canvas.addEventListener('touchstart', () => {
             if (!gameActive) resetGame();
-        }, { passive: false });
-
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function playSfx(f, t, d) {
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            const o = audioCtx.createOscillator();
-            const g = audioCtx.createGain();
-            o.type = t; o.frequency.value = f;
-            g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + d);
-            o.connect(g); g.connect(audioCtx.destination);
-            o.start(); o.stop(audioCtx.currentTime + d);
-        }
+        });
 
         function resetGame() {
             score = 0;
-            level = 1;
-            baseEnemySpeed = 1.0;
-            spawnRate = 140;
-            scoreDisplay.textContent = score;
-            levelDisplay.textContent = "Niveau: 1";
-            enemies = [];
-            projectiles = [];
+            gameSpeed = 5;
+            obstacles = [];
             gameActive = true;
+            gameOverMsg.style.display = 'none';
             requestAnimationFrame(loop);
         }
 
-        function updateDifficulty() {
-            let newLevel = Math.floor(score / 30) + 1;
-            if (newLevel > level) {
-                level = newLevel;
-                levelDisplay.textContent = "Niveau: " + level;
-                // Augmentation beaucoup plus faible qu'avant
-                baseEnemySpeed += 0.15; 
-                spawnRate = Math.max(30, spawnRate - 5); 
-                playSfx(880, 'sine', 0.2);
-            }
+        function spawnObstacle() {
+            const lanes = [60, 150, 240];
+            const lane = lanes[Math.floor(Math.random() * lanes.length)];
+            obstacles.push({
+                x: lane,
+                y: -100,
+                w: 50,
+                h: 80,
+                color: '#f1c40f',
+                speed: gameSpeed * 0.8
+            });
         }
 
         function loop() {
@@ -122,66 +124,56 @@
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // GESTION DU TIR AUTOMATIQUE
-            shootTimer++;
-            if (shootTimer >= shootSpeed) {
-                projectiles.push({ x: player.x + (player.w/2) - 15, y: player.y, speed: 10 });
-                playSfx(440, 'square', 0.03);
-                shootTimer = 0;
+            // 1. Dessin de la Route
+            ctx.fillStyle = '#2c3e50';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#7f8c8d';
+            ctx.fillRect(40, 0, canvas.width - 80, canvas.height);
+
+            // Lignes blanches animées
+            ctx.strokeStyle = 'white';
+            ctx.setLineDash([40, 40]);
+            ctx.lineDashOffset = -roadOffset;
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0); ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            roadOffset += gameSpeed;
+
+            // 2. Gestion Joueur
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x, player.y, player.w, player.h); // Corps voiture
+            ctx.fillStyle = 'black'; // Roues
+            ctx.fillRect(player.x-5, player.y+10, 5, 20); ctx.fillRect(player.x+50, player.y+10, 5, 20);
+            ctx.fillRect(player.x-5, player.y+50, 5, 20); ctx.fillRect(player.x+50, player.y+50, 5, 20);
+
+            // 3. Gestion Obstacles
+            obstacleTimer++;
+            if (obstacleTimer > Math.max(20, 100 - gameSpeed * 5)) {
+                spawnObstacle();
+                obstacleTimer = 0;
             }
 
-            // Dessin Joueur
-            ctx.fillStyle = '#ff4d4d';
-            ctx.font = 'bold 20px Arial';
-            ctx.fillText('SAUCISSON', player.x, player.y + 20);
-
-            // Projectiles
-            projectiles.forEach((p, index) => {
-                p.y -= p.speed;
-                ctx.fillStyle = '#ffbd69';
-                ctx.font = 'bold 16px Arial';
-                ctx.fillText('(( ))', p.x, p.y); 
-                if (p.y < 0) projectiles.splice(index, 1);
-            });
-
-            // Ennemis (ARABES)
-            enemyTimer++;
-            if (enemyTimer > spawnRate) {
-                enemies.push({ 
-                    x: Math.random() * (canvas.width - 80), 
-                    y: -20, 
-                    speed: baseEnemySpeed + (Math.random() * 0.3) 
-                });
-                enemyTimer = 0;
-            }
-
-            enemies.forEach((en, eIdx) => {
-                en.y += en.speed;
-                ctx.fillStyle = '#00f2ff';
-                ctx.font = 'bold 18px Arial';
-                ctx.fillText('ARABES', en.x, en.y);
+            obstacles.forEach((ob, index) => {
+                ob.y += gameSpeed;
+                ctx.fillStyle = ob.color;
+                ctx.fillRect(ob.x, ob.y, ob.w, ob.h);
 
                 // Collision
-                projectiles.forEach((p, pIdx) => {
-                    if (p.x > en.x - 20 && p.x < en.x + 80 && p.y > en.y - 20 && p.y < en.y + 10) {
-                        enemies.splice(eIdx, 1);
-                        projectiles.splice(pIdx, 1);
-                        score += 10;
-                        scoreDisplay.textContent = score;
-                        updateDifficulty();
-                        playSfx(150, 'sawtooth', 0.1);
-                    }
-                });
-
-                if (en.y > canvas.height) {
+                if (player.x < ob.x + ob.w && player.x + player.w > ob.x &&
+                    player.y < ob.y + ob.h && player.y + player.h > ob.y) {
                     gameActive = false;
-                    ctx.fillStyle = 'white';
-                    ctx.textAlign = 'center';
-                    ctx.font = '40px Arial';
-                    ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2);
-                    ctx.font = '20px Arial';
-                    ctx.fillText('Appuyez pour rejouer', canvas.width/2, canvas.height/2 + 50);
-                    ctx.textAlign = 'start';
+                    playSfx(100, 'sawtooth', 0.5, 0.3);
+                    gameOverMsg.style.display = 'block';
+                }
+
+                if (ob.y > canvas.height) {
+                    obstacles.splice(index, 1);
+                    score += 10;
+                    scoreDisplay.textContent = score;
+                    gameSpeed += 0.1; // Accélération progressive
+                    speedDisplay.textContent = "Vitesse: " + (gameSpeed/5).toFixed(1) + "x";
+                    playSfx(600, 'sine', 0.1, 0.05);
                 }
             });
 
