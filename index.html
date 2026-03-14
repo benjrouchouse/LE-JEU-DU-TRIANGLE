@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Triangle Pop - Addictif & Sonore</title>
+    <title>Saucisson Run - Le Jeu</title>
     <style>
         body {
-            font-family: 'Arial Black', sans-serif;
-            background: radial-gradient(circle, #1a1a2e, #16213e);
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #3e2723; /* Marron foncé */
             color: #fff;
             display: flex;
             flex-direction: column;
@@ -18,48 +18,67 @@
             overflow: hidden;
         }
         #ui { text-align: center; margin-bottom: 15px; }
-        #score-label { font-size: 1.2rem; color: #00fff2; text-transform: uppercase; }
-        #score { font-size: 3.5rem; text-shadow: 0 0 20px #e94560; color: #e94560; }
+        #score-label { font-size: 1.2rem; color: #ffcc80; text-transform: uppercase; }
+        #score { font-size: 3.5rem; text-shadow: 0 0 10px #ffcc80; color: #ffcc80; }
         canvas {
-            border: 5px solid #0f3460;
+            border: 10px solid #5d4037; /* Marron plus clair */
             border-radius: 15px;
             box-shadow: 0 0 30px rgba(0,0,0,0.5);
-            background-color: #0f3460;
-            cursor: pointer;
+            background-color: #a1887f; /* Sable */
+            cursor: none; /* Cache la souris sur le jeu */
         }
-        .instructions { margin-top: 15px; font-size: 0.9rem; color: #888; }
+        .instructions { margin-top: 15px; font-size: 1rem; color: #d7ccc8; }
+        #game-over-msg {
+            display: none;
+            position: absolute;
+            font-size: 3rem;
+            color: #d84315;
+            text-shadow: 0 0 20px #000;
+            background-color: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 10px;
+        }
     </style>
 </head>
 <body>
 
     <div id="ui">
-        <div id="score-label">Points</div>
+        <div id="score-label">Dromadaires mangés</div>
         <div id="score">0</div>
     </div>
     
-    <canvas id="gameCanvas" width="360" height="480"></canvas>
-    <p class="instructions">Alignez 3 triangles identiques !</p>
+    <div style="position: relative;">
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+        <div id="game-over-msg">GAME OVER !<br><span style="font-size:1.5rem">Appuie sur Espace</span></div>
+    </div>
+    
+    <p class="instructions">Utilise les flèches directionnelles ← ↑ → ↓</p>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreElement = document.getElementById('score');
+        const gameOverMsg = document.getElementById('game-over-msg');
 
         // --- Paramètres ---
-        const ROWS = 8;
-        const COLS = 6;
-        const TILE_SIZE = canvas.width / COLS;
-        const COLORS = ['#FF0000', '#00FF00', '#0088FF', '#FFFF00', '#FF00FF'];
-        
-        let grid = [];
-        let score = 0;
-        let isAnimating = false;
-        let selected = null;
+        const GRID_SIZE = 20; // Taille d'une case (saucisson/dromadaire)
+        const WIDTH = canvas.width;
+        const HEIGHT = canvas.height;
+        let speed = 150; // Vitesse initiale (ms entre chaque mouvement)
 
-        // --- Moteur Audio (Web Audio API) ---
+        let saucisson = [];
+        let dromadaire = {};
+        let direction = 'right';
+        let nextDirection = 'right';
+        let score = 0;
+        let gameInterval;
+        let isGameOver = false;
+
+        // --- Moteur Audio ---
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
         function playSound(freq, type, duration) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.type = type;
@@ -72,149 +91,160 @@
             osc.stop(audioCtx.currentTime + duration);
         }
 
-        function playMatchSound() {
-            playSound(440, 'triangle', 0.3);
-            setTimeout(() => playSound(660, 'triangle', 0.3), 100);
-            setTimeout(() => playSound(880, 'triangle', 0.4), 200);
+        function playEatSound() {
+            playSound(600, 'sine', 0.2);
+            setTimeout(() => playSound(800, 'sine', 0.2), 50);
         }
 
-        function playSelectSound() {
-            playSound(220, 'sine', 0.1);
+        function playGameOverSound() {
+            playSound(300, 'sawtooth', 0.3);
+            setTimeout(() => playSound(200, 'sawtooth', 0.3), 150);
+            setTimeout(() => playSound(100, 'sawtooth', 0.5), 300);
         }
 
         // --- Logique du Jeu ---
         function init() {
-            for (let r = 0; r < ROWS; r++) {
-                grid[r] = [];
-                for (let c = 0; c < COLS; c++) {
-                    grid[r][c] = { color: Math.floor(Math.random()*COLORS.length), r, c, y: r*TILE_SIZE };
+            saucisson = [
+                { x: 10 * GRID_SIZE, y: 10 * GRID_SIZE }, // Tête
+                { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE },
+                { x: 8 * GRID_SIZE, y: 10 * GRID_SIZE }  // Queue
+            ];
+            direction = 'right';
+            nextDirection = 'right';
+            score = 0;
+            speed = 150;
+            scoreElement.textContent = score;
+            isGameOver = false;
+            gameOverMsg.style.display = 'none';
+            placeDromadaire();
+            if (gameInterval) clearInterval(gameInterval);
+            gameInterval = setInterval(gameLoop, speed);
+        }
+
+        function placeDromadaire() {
+            dromadaire = {
+                x: Math.floor(Math.random() * (WIDTH / GRID_SIZE)) * GRID_SIZE,
+                y: Math.floor(Math.random() * (HEIGHT / GRID_SIZE)) * GRID_SIZE
+            };
+            // Éviter de placer le dromadaire sur le saucisson
+            for (let part of saucisson) {
+                if (part.x === dromadaire.x && part.y === dromadaire.y) {
+                    placeDromadaire();
+                    return;
                 }
             }
-            if(findMatches().length > 0) init(); // Éviter les combos au démarrage
+        }
+
+        function gameLoop() {
+            if (isGameOver) return;
+            direction = nextDirection;
+            update();
             draw();
+        }
+
+        function update() {
+            const head = { x: saucisson[0].x, y: saucisson[0].y };
+
+            switch (direction) {
+                case 'up': head.y -= GRID_SIZE; break;
+                case 'down': head.y += GRID_SIZE; break;
+                case 'left': head.x -= GRID_SIZE; break;
+                case 'right': head.x += GRID_SIZE; break;
+            }
+
+            // --- Collisions avec les murs ---
+            if (head.x < 0 || head.x >= WIDTH || head.y < 0 || head.y >= HEIGHT) {
+                endGame();
+                return;
+            }
+
+            // --- Collisions avec soi-même ---
+            for (let i = 1; i < saucisson.length; i++) {
+                if (head.x === saucisson[i].x && head.y === saucisson[i].y) {
+                    endGame();
+                    return;
+                }
+            }
+
+            saucisson.unshift(head); // Ajoute la nouvelle tête
+
+            // --- Manger le dromadaire ---
+            if (head.x === dromadaire.x && head.y === dromadaire.y) {
+                score++;
+                scoreElement.textContent = score;
+                playEatSound();
+                placeDromadaire();
+                // Augmenter la vitesse légèrement
+                if (speed > 50) {
+                    clearInterval(gameInterval);
+                    speed -= 5;
+                    gameInterval = setInterval(gameLoop, speed);
+                }
+            } else {
+                saucisson.pop(); // Retire la queue si on n'a pas mangé
+            }
         }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            grid.forEach(row => row.forEach(tile => {
-                if (!tile) return;
-                const x = tile.c * TILE_SIZE;
-                const y = tile.y;
+
+            // --- Dessiner le dromadaire ---
+            // On le représente par une couleur sable foncé/marron
+            ctx.fillStyle = '#8d6e63'; 
+            ctx.fillRect(dromadaire.x, dromadaire.y, GRID_SIZE, GRID_SIZE);
+            // Petit détail pour le rendre "dromadaire"
+            ctx.fillStyle = '#6d4c41';
+            ctx.fillRect(dromadaire.x + 5, dromadaire.y + 5, GRID_SIZE - 10, GRID_SIZE - 10); 
+
+
+            // --- Dessiner le saucisson ---
+            saucisson.forEach((part, index) => {
+                // Tête en marron plus foncé, corps en marron rosé
+                ctx.fillStyle = (index === 0) ? '#a11b1b' : '#c62828';
                 
-                // Dessin du triangle
-                ctx.fillStyle = COLORS[tile.color];
+                // Dessiner une forme plus arrondie pour le saucisson
                 ctx.beginPath();
-                ctx.moveTo(x + TILE_SIZE/2, y + 10);
-                ctx.lineTo(x + 10, y + TILE_SIZE - 10);
-                ctx.lineTo(x + TILE_SIZE - 10, y + TILE_SIZE - 10);
-                ctx.closePath();
+                const centerX = part.x + GRID_SIZE / 2;
+                const centerY = part.y + GRID_SIZE / 2;
+                ctx.arc(centerX, centerY, (GRID_SIZE / 2) - 2, 0, 2 * Math.PI);
                 ctx.fill();
 
-                if (selected && selected.r === tile.r && selected.c === tile.c) {
-                    ctx.strokeStyle = "white";
-                    ctx.lineWidth = 4;
-                    ctx.stroke();
+                // Ajouter des petits points blancs pour le gras du saucisson !
+                ctx.fillStyle = '#fff';
+                if (index > 0) {
+                   ctx.fillRect(part.x + 6, part.y + 6, 3, 3);
+                   ctx.fillRect(part.x + 12, part.y + 11, 2, 2);
                 }
-            }));
-        }
-
-        function findMatches() {
-            let matches = [];
-            // Horizontaux
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < COLS - 2; c++) {
-                    if (grid[r][c] && grid[r][c+1] && grid[r][c+2] &&
-                        grid[r][c].color === grid[r][c+1].color && grid[r][c].color === grid[r][c+2].color) {
-                        matches.push({r,c}, {r,c:c+1}, {r,c:c+2});
-                    }
-                }
-            }
-            // Verticaux
-            for (let c = 0; c < COLS; c++) {
-                for (let r = 0; r < ROWS - 2; r++) {
-                    if (grid[r][c] && grid[r+1][c] && grid[r+2][c] &&
-                        grid[r][c].color === grid[r+1][c].color && grid[r][c].color === grid[r+2][c].color) {
-                        matches.push({r,c}, {r:r+1,c}, {r:r+2,c});
-                    }
-                }
-            }
-            return matches;
-        }
-
-        async function processTurn() {
-            let matches = findMatches();
-            if (matches.length > 0) {
-                isAnimating = true;
-                playMatchSound();
-                score += matches.length * 10;
-                scoreElement.textContent = score;
-
-                matches.forEach(m => grid[m.r][m.c] = null);
-                draw();
-                await new Promise(r => setTimeout(r, 300));
-
-                // Chute
-                for (let c = 0; c < COLS; c++) {
-                    let write = ROWS - 1;
-                    for (let r = ROWS - 1; r >= 0; r--) {
-                        if (grid[r][c]) {
-                            grid[write][c] = grid[r][c];
-                            grid[write][c].r = write;
-                            write--;
-                        }
-                    }
-                    for (let r = write; r >= 0; r--) {
-                        grid[r][c] = { color: Math.floor(Math.random()*COLORS.length), r, c, y: -TILE_SIZE };
-                    }
-                }
-                
-                await animateFall();
-                processTurn(); // Récursif pour les cascades
-            } else {
-                isAnimating = false;
-            }
-        }
-
-        function animateFall() {
-            return new Promise(resolve => {
-                function frame() {
-                    let done = true;
-                    grid.forEach(row => row.forEach(t => {
-                        const target = t.r * TILE_SIZE;
-                        if (t.y < target) { t.y += 10; done = false; if(t.y > target) t.y = target; }
-                    }));
-                    draw();
-                    if (done) resolve(); else requestAnimationFrame(frame);
-                }
-                frame();
             });
         }
 
-        canvas.addEventListener('mousedown', e => {
-            if (isAnimating) return;
+        function endGame() {
+            isGameOver = true;
+            playGameOverSound();
+            clearInterval(gameInterval);
+            gameOverMsg.style.display = 'block';
+        }
+
+        // --- Contôles ---
+        window.addEventListener('keydown', e => {
             if (audioCtx.state === 'suspended') audioCtx.resume();
-
-            const rect = canvas.getBoundingClientRect();
-            const c = Math.floor((e.clientX - rect.left) / TILE_SIZE);
-            const r = Math.floor((e.clientY - rect.top) / TILE_SIZE);
-
-            if (!selected) {
-                selected = grid[r][c];
-                playSelectSound();
-            } else {
-                const dist = Math.abs(r - selected.r) + Math.abs(c - selected.c);
-                if (dist === 1) {
-                    const temp = grid[r][c].color;
-                    grid[r][c].color = selected.color;
-                    selected.color = temp;
-                    processTurn();
-                }
-                selected = null;
+            
+            switch (e.key) {
+                case 'ArrowUp': if (direction !== 'down') nextDirection = 'up'; break;
+                case 'ArrowDown': if (direction !== 'up') nextDirection = 'down'; break;
+                case 'ArrowLeft': if (direction !== 'right') nextDirection = 'left'; break;
+                case 'ArrowRight': if (direction !== 'left') nextDirection = 'right'; break;
+                case ' ': if (isGameOver) init(); break; // Recommencer avec Espace
             }
-            draw();
+            // Éviter le scroll de la page avec les flèches
+            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) {
+                e.preventDefault();
+            }
         });
 
+        // Lancement du jeu
         init();
+
     </script>
 </body>
 </html>
