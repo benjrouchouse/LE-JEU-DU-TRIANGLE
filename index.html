@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Saucisson Run - Le Jeu</title>
+    <title>Saucisson vs Harabe</title>
     <style>
         body {
-            font-family: 'Courier New', Courier, monospace;
-            background-color: #3e2723; /* Marron foncé */
-            color: #fff;
+            font-family: 'Arial Black', sans-serif;
+            background-color: #2c3e50;
+            color: #ecf0f1;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -17,234 +17,111 @@
             margin: 0;
             overflow: hidden;
         }
-        #ui { text-align: center; margin-bottom: 15px; }
-        #score-label { font-size: 1.2rem; color: #ffcc80; text-transform: uppercase; }
-        #score { font-size: 3.5rem; text-shadow: 0 0 10px #ffcc80; color: #ffcc80; }
+        #score { font-size: 2.5rem; color: #f1c40f; margin-bottom: 10px; }
         canvas {
-            border: 10px solid #5d4037; /* Marron plus clair */
-            border-radius: 15px;
-            box-shadow: 0 0 30px rgba(0,0,0,0.5);
-            background-color: #a1887f; /* Sable */
-            cursor: none; /* Cache la souris sur le jeu */
+            border: 5px solid #bdc3c7;
+            background-color: #34495e;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
-        .instructions { margin-top: 15px; font-size: 1rem; color: #d7ccc8; }
-        #game-over-msg {
-            display: none;
-            position: absolute;
-            font-size: 3rem;
-            color: #d84315;
-            text-shadow: 0 0 20px #000;
-            background-color: rgba(0,0,0,0.7);
-            padding: 20px;
-            border-radius: 10px;
-        }
+        .instructions { margin-top: 15px; color: #bdc3c7; }
     </style>
 </head>
 <body>
 
-    <div id="ui">
-        <div id="score-label">Dromadaires mangés</div>
-        <div id="score">0</div>
-    </div>
-    
-    <div style="position: relative;">
-        <canvas id="gameCanvas" width="400" height="400"></canvas>
-        <div id="game-over-msg">GAME OVER !<br><span style="font-size:1.5rem">Appuie sur Espace</span></div>
-    </div>
-    
-    <p class="instructions">Utilise les flèches directionnelles ← ↑ → ↓</p>
+    <div id="score">0</div>
+    <canvas id="gameCanvas" width="500" height="500"></canvas>
+    <p class="instructions">Utilise les flèches pour diriger le SAUCISSON !</p>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreElement = document.getElementById('score');
-        const gameOverMsg = document.getElementById('game-over-msg');
 
-        // --- Paramètres ---
-        const GRID_SIZE = 20; // Taille d'une case (saucisson/dromadaire)
-        const WIDTH = canvas.width;
-        const HEIGHT = canvas.height;
-        let speed = 150; // Vitesse initiale (ms entre chaque mouvement)
-
-        let saucisson = [];
-        let dromadaire = {};
-        let direction = 'right';
-        let nextDirection = 'right';
+        const GRID = 25;
+        let saucisson = [{x: 10 * GRID, y: 10 * GRID}];
+        let harabe = {x: 0, y: 0};
+        let dir = 'right';
         let score = 0;
-        let gameInterval;
-        let isGameOver = false;
+        let gameSpeed = 150;
 
-        // --- Moteur Audio ---
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-        function playSound(freq, type, duration) {
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = type;
-            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + duration);
-        }
-
-        function playEatSound() {
-            playSound(600, 'sine', 0.2);
-            setTimeout(() => playSound(800, 'sine', 0.2), 50);
-        }
-
-        function playGameOverSound() {
-            playSound(300, 'sawtooth', 0.3);
-            setTimeout(() => playSound(200, 'sawtooth', 0.3), 150);
-            setTimeout(() => playSound(100, 'sawtooth', 0.5), 300);
-        }
-
-        // --- Logique du Jeu ---
-        function init() {
-            saucisson = [
-                { x: 10 * GRID_SIZE, y: 10 * GRID_SIZE }, // Tête
-                { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE },
-                { x: 8 * GRID_SIZE, y: 10 * GRID_SIZE }  // Queue
-            ];
-            direction = 'right';
-            nextDirection = 'right';
-            score = 0;
-            speed = 150;
-            scoreElement.textContent = score;
-            isGameOver = false;
-            gameOverMsg.style.display = 'none';
-            placeDromadaire();
-            if (gameInterval) clearInterval(gameInterval);
-            gameInterval = setInterval(gameLoop, speed);
-        }
-
-        function placeDromadaire() {
-            dromadaire = {
-                x: Math.floor(Math.random() * (WIDTH / GRID_SIZE)) * GRID_SIZE,
-                y: Math.floor(Math.random() * (HEIGHT / GRID_SIZE)) * GRID_SIZE
-            };
-            // Éviter de placer le dromadaire sur le saucisson
-            for (let part of saucisson) {
-                if (part.x === dromadaire.x && part.y === dromadaire.y) {
-                    placeDromadaire();
-                    return;
-                }
-            }
-        }
-
-        function gameLoop() {
-            if (isGameOver) return;
-            direction = nextDirection;
-            update();
-            draw();
-        }
-
-        function update() {
-            const head = { x: saucisson[0].x, y: saucisson[0].y };
-
-            switch (direction) {
-                case 'up': head.y -= GRID_SIZE; break;
-                case 'down': head.y += GRID_SIZE; break;
-                case 'left': head.x -= GRID_SIZE; break;
-                case 'right': head.x += GRID_SIZE; break;
-            }
-
-            // --- Collisions avec les murs ---
-            if (head.x < 0 || head.x >= WIDTH || head.y < 0 || head.y >= HEIGHT) {
-                endGame();
-                return;
-            }
-
-            // --- Collisions avec soi-même ---
-            for (let i = 1; i < saucisson.length; i++) {
-                if (head.x === saucisson[i].x && head.y === saucisson[i].y) {
-                    endGame();
-                    return;
-                }
-            }
-
-            saucisson.unshift(head); // Ajoute la nouvelle tête
-
-            // --- Manger le dromadaire ---
-            if (head.x === dromadaire.x && head.y === dromadaire.y) {
-                score++;
-                scoreElement.textContent = score;
-                playEatSound();
-                placeDromadaire();
-                // Augmenter la vitesse légèrement
-                if (speed > 50) {
-                    clearInterval(gameInterval);
-                    speed -= 5;
-                    gameInterval = setInterval(gameLoop, speed);
-                }
-            } else {
-                saucisson.pop(); // Retire la queue si on n'a pas mangé
-            }
+        function placeHarabe() {
+            harabe.x = Math.floor(Math.random() * (canvas.width / GRID)) * GRID;
+            harabe.y = Math.floor(Math.random() * (canvas.height / GRID)) * GRID;
         }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // --- Dessiner le dromadaire ---
-            // On le représente par une couleur sable foncé/marron
-            ctx.fillStyle = '#8d6e63'; 
-            ctx.fillRect(dromadaire.x, dromadaire.y, GRID_SIZE, GRID_SIZE);
-            // Petit détail pour le rendre "dromadaire"
-            ctx.fillStyle = '#6d4c41';
-            ctx.fillRect(dromadaire.x + 5, dromadaire.y + 5, GRID_SIZE - 10, GRID_SIZE - 10); 
+            // Dessiner le HARABE (la cible)
+            ctx.fillStyle = "#e74c3c";
+            ctx.font = "bold 14px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("HARABE", harabe.x + GRID/2, harabe.y + GRID/1.5);
 
-
-            // --- Dessiner le saucisson ---
+            // Dessiner le SAUCISSON (le serpent)
             saucisson.forEach((part, index) => {
-                // Tête en marron plus foncé, corps en marron rosé
-                ctx.fillStyle = (index === 0) ? '#a11b1b' : '#c62828';
-                
-                // Dessiner une forme plus arrondie pour le saucisson
-                ctx.beginPath();
-                const centerX = part.x + GRID_SIZE / 2;
-                const centerY = part.y + GRID_SIZE / 2;
-                ctx.arc(centerX, centerY, (GRID_SIZE / 2) - 2, 0, 2 * Math.PI);
-                ctx.fill();
-
-                // Ajouter des petits points blancs pour le gras du saucisson !
-                ctx.fillStyle = '#fff';
-                if (index > 0) {
-                   ctx.fillRect(part.x + 6, part.y + 6, 3, 3);
-                   ctx.fillRect(part.x + 12, part.y + 11, 2, 2);
-                }
+                ctx.fillStyle = index === 0 ? "#f39c12" : "#f1c40f";
+                ctx.font = "bold 12px Arial";
+                // On affiche le mot SAUCISSON pour chaque segment
+                ctx.fillText("SAUCISSON", part.x + GRID/2, part.y + GRID/1.5);
             });
         }
 
-        function endGame() {
-            isGameOver = true;
-            playGameOverSound();
-            clearInterval(gameInterval);
-            gameOverMsg.style.display = 'block';
+        function update() {
+            const head = {x: saucisson[0].x, y: saucisson[0].y};
+
+            if (dir === 'left') head.x -= GRID;
+            if (dir === 'right') head.x += GRID;
+            if (dir === 'up') head.y -= GRID;
+            if (dir === 'down') head.y += GRID;
+
+            // Collision murs
+            if (head.x < 0 || head.x >= canvas.width || head.y < 0 || head.y >= canvas.height) {
+                reset();
+                return;
+            }
+
+            // Collision corps
+            for (let part of saucisson) {
+                if (head.x === part.x && head.y === part.y) {
+                    reset();
+                    return;
+                }
+            }
+
+            saucisson.unshift(head);
+
+            // Manger le Harabe
+            if (head.x === harabe.x && head.y === harabe.y) {
+                score++;
+                scoreElement.textContent = score;
+                placeHarabe();
+            } else {
+                saucisson.pop();
+            }
         }
 
-        // --- Contôles ---
+        function reset() {
+            alert("Game Over ! Score: " + score);
+            saucisson = [{x: 10 * GRID, y: 10 * GRID}];
+            dir = 'right';
+            score = 0;
+            scoreElement.textContent = score;
+            placeHarabe();
+        }
+
         window.addEventListener('keydown', e => {
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            
-            switch (e.key) {
-                case 'ArrowUp': if (direction !== 'down') nextDirection = 'up'; break;
-                case 'ArrowDown': if (direction !== 'up') nextDirection = 'down'; break;
-                case 'ArrowLeft': if (direction !== 'right') nextDirection = 'left'; break;
-                case 'ArrowRight': if (direction !== 'left') nextDirection = 'right'; break;
-                case ' ': if (isGameOver) init(); break; // Recommencer avec Espace
-            }
-            // Éviter le scroll de la page avec les flèches
-            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) {
-                e.preventDefault();
-            }
+            if (e.key === 'ArrowLeft' && dir !== 'right') dir = 'left';
+            if (e.key === 'ArrowRight' && dir !== 'left') dir = 'right';
+            if (e.key === 'ArrowUp' && dir !== 'down') dir = 'up';
+            if (e.key === 'ArrowDown' && dir !== 'up') dir = 'down';
         });
 
-        // Lancement du jeu
-        init();
-
+        placeHarabe();
+        setInterval(() => {
+            update();
+            draw();
+        }, gameSpeed);
     </script>
 </body>
 </html>
