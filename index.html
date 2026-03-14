@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Saucisson Shooter Pro</title>
+    <title>Saucisson Shooter Zen</title>
     <style>
         body {
             margin: 0;
@@ -48,9 +48,9 @@
         let level = 1;
         let gameActive = true;
 
-        // Paramètres de difficulté progressive
-        let baseEnemySpeed = 2;
-        let spawnRate = 60; // Plus c'est haut, plus c'est lent au début
+        // RÉGLAGES PLUS LENTS
+        let baseEnemySpeed = 1.2; 
+        let spawnRate = 120; // Beaucoup moins de cibles au début
 
         const player = {
             x: canvas.width / 2 - 40,
@@ -63,7 +63,6 @@
         let enemies = [];
         let enemyTimer = 0;
 
-        // --- GESTION DU TACTILE ---
         canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
@@ -97,8 +96,8 @@
         function resetGame() {
             score = 0;
             level = 1;
-            baseEnemySpeed = 2;
-            spawnRate = 60;
+            baseEnemySpeed = 1.2;
+            spawnRate = 120;
             scoreDisplay.textContent = score;
             levelDisplay.textContent = "Niveau: 1";
             enemies = [];
@@ -108,14 +107,13 @@
         }
 
         function updateDifficulty() {
-            // Tous les 30 points, on augmente la difficulté
             let newLevel = Math.floor(score / 30) + 1;
             if (newLevel > level) {
                 level = newLevel;
                 levelDisplay.textContent = "Niveau: " + level;
-                baseEnemySpeed += 0.5; // Les ennemis descendent plus vite
-                spawnRate = Math.max(15, spawnRate - 8); // Ils apparaissent plus souvent
-                playSfx(880, 'sine', 0.3); // Petit son de passage de niveau
+                baseEnemySpeed += 0.4; 
+                spawnRate = Math.max(20, spawnRate - 15); 
+                playSfx(880, 'sine', 0.3);
             }
         }
 
@@ -124,12 +122,10 @@
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Dessin Joueur (SAUCISSON)
             ctx.fillStyle = '#ff4d4d';
             ctx.font = 'bold 20px Arial';
             ctx.fillText('SAUCISSON', player.x, player.y + 20);
 
-            // Gestion Projectiles (Saucisses)
             projectiles.forEach((p, index) => {
                 p.y -= p.speed;
                 ctx.fillStyle = '#ffbd69';
@@ -138,13 +134,12 @@
                 if (p.y < 0) projectiles.splice(index, 1);
             });
 
-            // Gestion Ennemis (ARABES)
             enemyTimer++;
             if (enemyTimer > spawnRate) {
                 enemies.push({ 
                     x: Math.random() * (canvas.width - 80), 
                     y: -20, 
-                    speed: baseEnemySpeed + Math.random() 
+                    speed: baseEnemySpeed + (Math.random() * 0.5) 
                 });
                 enemyTimer = 0;
             }
@@ -155,7 +150,6 @@
                 ctx.font = 'bold 18px Arial';
                 ctx.fillText('ARABES', en.x, en.y);
 
-                // Collision avec projectiles
                 projectiles.forEach((p, pIdx) => {
                     if (p.x > en.x - 20 && p.x < en.x + 80 && p.y > en.y - 20 && p.y < en.y + 10) {
                         enemies.splice(eIdx, 1);
@@ -167,7 +161,6 @@
                     }
                 });
 
-                // Collision avec le bas
                 if (en.y > canvas.height) {
                     gameActive = false;
                     ctx.fillStyle = 'white';
